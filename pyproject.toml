@@ -1,0 +1,16 @@
+[project]
+name = "polymarket-monitor"
+version = "0.1.0"
+description = "Polymarket monitoring service"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "httpx",
+    "apscheduler",
+    "python-dotenv",
+    "basedpyright>=1.37.1",
+]
+
+[tool.uv]
+package = false
