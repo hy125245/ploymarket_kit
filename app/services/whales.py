@@ -5,10 +5,16 @@ from app.db import db_session
 
 
 def _parse_time(value: str) -> datetime:
+    if isinstance(value, (int, float)):
+        return datetime.utcfromtimestamp(value)
+    if isinstance(value, str) and value.isdigit():
+        return datetime.utcfromtimestamp(int(value))
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def compute_whales(min_net_invested: float = 10000.0, since_hours: int = 24) -> List[Dict[str, float]]:
+def compute_whales(
+    min_net_invested: float = 10000.0, since_hours: int = 24
+) -> List[Dict[str, float]]:
     cutoff = datetime.utcnow() - timedelta(hours=since_hours)
     totals: Dict[str, float] = {}
 

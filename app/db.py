@@ -3,7 +3,9 @@ import sqlite3
 from contextlib import contextmanager
 from typing import Iterator
 
-DB_PATH = os.getenv("DATABASE_URL", "/home/hy125245/workspace/ploymarket_kit/polymarket.db")
+DB_PATH = os.getenv(
+    "DATABASE_URL", "/home/hy125245/workspace/ploymarket_kit/polymarket.db"
+)
 
 
 def get_connection() -> sqlite3.Connection:
@@ -37,7 +39,7 @@ def init_db() -> None:
                 profit REAL,
                 realized INTEGER DEFAULT 0
             )
-            """
+                        """
         )
         conn.execute(
             """

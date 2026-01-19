@@ -4,39 +4,55 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from app.db import db_session
-from app.polymarket.queries import MARKETS_QUERY, TRADES_QUERY, USERS_QUERY
 
-DEFAULT_GRAPHQL_URL = "https://gamma-api.polymarket.com/graphql"
+DEFAULT_GAMMA_URL = "https://gamma-api.polymarket.com"
+DEFAULT_DATA_URL = "https://data-api.polymarket.com"
 
 
 class PolymarketClient:
-    def __init__(self, endpoint: Optional[str] = None, api_key: Optional[str] = None) -> None:
-        self.endpoint = endpoint or os.getenv("POLYMARKET_GRAPHQL_URL", DEFAULT_GRAPHQL_URL)
-        self.api_key = api_key or os.getenv("POLYMARKET_API_KEY")
+    def __init__(
+        self,
+        gamma_url: Optional[str] = None,
+        data_url: Optional[str] = None,
+    ) -> None:
+        self.gamma_url = gamma_url or os.getenv(
+            "POLYMARKET_GAMMA_URL", DEFAULT_GAMMA_URL
+        )
+        self.data_url = data_url or os.getenv("POLYMARKET_DATA_URL", DEFAULT_DATA_URL)
 
-    def execute(self, query: str, variables: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-        payload = {"query": query, "variables": variables or {}}
-        response = httpx.post(self.endpoint, json=payload, headers=headers, timeout=30)
+    def get(
+        self, base_url: str, path: str, params: Optional[Dict[str, Any]] = None
+    ) -> Any:
+        response = httpx.get(f"{base_url}{path}", params=params, timeout=30)
         response.raise_for_status()
-        data = response.json()
-        if "errors" in data:
-            raise RuntimeError(f"GraphQL errors: {data['errors']}")
-        return data.get("data", {})
-
-    def fetch_trades(self, limit: int = 500, offset: int = 0) -> List[Dict[str, Any]]:
-        data = self.execute(TRADES_QUERY, {"limit": limit, "offset": offset})
-        return data.get("trades", [])
+        return response.json()
 
     def fetch_markets(self, limit: int = 500, offset: int = 0) -> List[Dict[str, Any]]:
-        data = self.execute(MARKETS_QUERY, {"limit": limit, "offset": offset})
-        return data.get("markets", [])
+        return self.get(
+            self.gamma_url,
+            "/markets",
+            {
+                "active": True,
+                "closed": False,
+                "limit": limit,
+                "offset": offset,
+                "order": "volume24hr",
+                "ascending": False,
+            },
+        )
+
+    def fetch_trades(self, limit: int = 500, offset: int = 0) -> List[Dict[str, Any]]:
+        return self.get(
+            self.data_url,
+            "/trades",
+            {
+                "limit": limit,
+                "offset": offset,
+            },
+        )
 
     def fetch_users(self, limit: int = 500, offset: int = 0) -> List[Dict[str, Any]]:
-        data = self.execute(USERS_QUERY, {"limit": limit, "offset": offset})
-        return data.get("users", [])
+        return []
 
 
 def upsert_trades(trades: List[Dict[str, Any]]) -> None:
@@ -51,15 +67,17 @@ def upsert_trades(trades: List[Dict[str, Any]]) -> None:
             """,
             [
                 (
-                    trade.get("id"),
-                    trade.get("marketId"),
-                    trade.get("userId"),
+                    trade.get("transactionHash")
+                    or trade.get("id")
+                    or f"{trade.get('proxyWallet')}-{trade.get('timestamp')}-{trade.get('asset')}",
+                    trade.get("conditionId"),
+                    trade.get("proxyWallet"),
                     trade.get("side"),
                     trade.get("price"),
                     trade.get("size"),
-                    trade.get("createdAt"),
-                    trade.get("profit"),
-                    1 if trade.get("realized") else 0,
+                    trade.get("timestamp"),
+                    trade.get("realizedPnl"),
+                    1 if trade.get("realizedPnl") else 0,
                 )
                 for trade in trades
             ],
@@ -78,11 +96,11 @@ def upsert_markets(markets: List[Dict[str, Any]]) -> None:
             """,
             [
                 (
-                    market.get("id"),
+                    market.get("conditionId") or market.get("id"),
                     market.get("question"),
-                    market.get("volume24h"),
+                    market.get("volume24hr"),
                     market.get("volume"),
-                    market.get("status"),
+                    "active" if market.get("active") else "closed",
                     market.get("createdAt"),
                 )
                 for market in markets

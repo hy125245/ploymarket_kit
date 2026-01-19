@@ -5,6 +5,10 @@ from app.db import db_session
 
 
 def _parse_time(value: str) -> datetime:
+    if isinstance(value, (int, float)):
+        return datetime.utcfromtimestamp(value)
+    if isinstance(value, str) and value.isdigit():
+        return datetime.utcfromtimestamp(int(value))
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
@@ -20,7 +24,11 @@ def hot_markets(limit: int = 20, since_hours: int = 24) -> List[Dict[str, float]
 
     if rows:
         markets = [
-            {"market_id": row["id"], "question": row["question"], "volume": row["volume_24h"]}
+            {
+                "market_id": row["id"],
+                "question": row["question"],
+                "volume": row["volume_24h"],
+            }
             for row in rows
         ]
         markets.sort(key=lambda item: item["volume"] or 0, reverse=True)

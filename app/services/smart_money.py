@@ -6,6 +6,10 @@ from app.db import db_session
 
 
 def _parse_time(value: str) -> datetime:
+    if isinstance(value, (int, float)):
+        return datetime.utcfromtimestamp(value)
+    if isinstance(value, str) and value.isdigit():
+        return datetime.utcfromtimestamp(int(value))
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
