@@ -1,8 +1,29 @@
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Tuple
+from typing import Any, DefaultDict, Dict, List, Optional, Tuple, TypedDict
 
 from app.db import db_session
+
+
+class TradeEntry(TypedDict):
+    user_id: str
+    market_id: str
+    side: str
+    price: float
+    size: float
+    timestamp: datetime
+
+
+class ProfitEntry(TypedDict):
+    user_id: str
+    market_id: str
+    timestamp: datetime
+    profit: float
+
+
+class ReinvestTrade(TypedDict):
+    trade: TradeEntry
+    stake: float
 
 
 def _parse_time(value: str) -> datetime:
@@ -13,7 +34,7 @@ def _parse_time(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def load_trades() -> List[Dict[str, Any]]:
+def load_trades() -> List[TradeEntry]:
     with db_session() as conn:
         rows = conn.execute(
             """
@@ -23,7 +44,7 @@ def load_trades() -> List[Dict[str, Any]]:
             """
         ).fetchall()
 
-    trades: List[Dict[str, Any]] = []
+    trades: List[TradeEntry] = []
     for row in rows:
         trade_time = _parse_time(row["timestamp"])
         trades.append(
@@ -40,13 +61,13 @@ def load_trades() -> List[Dict[str, Any]]:
 
 
 def compute_realized_profits(
-    trades: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    grouped: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+    trades: List[TradeEntry],
+) -> List[ProfitEntry]:
+    grouped: Dict[Tuple[str, str], List[TradeEntry]] = defaultdict(list)
     for trade in trades:
         grouped[(trade["user_id"], trade["market_id"])].append(trade)
 
-    profits: List[Dict[str, Any]] = []
+    profits: List[ProfitEntry] = []
     for (user_id, market_id), market_trades in grouped.items():
         market_trades.sort(key=lambda item: item["timestamp"])
         position = 0.0
@@ -95,8 +116,10 @@ def compute_smart_money(
     since_days: int = 30,
 ) -> List[Dict[str, float]]:
     cutoff = datetime.utcnow() - timedelta(days=since_days)
-    user_market_profit = defaultdict(float)
-    user_stats = defaultdict(lambda: {"profit": 0.0, "stake": 0.0, "trade_count": 0})
+    user_market_profit: DefaultDict[Tuple[str, str], float] = defaultdict(float)
+    user_stats: DefaultDict[str, Dict[str, float]] = defaultdict(
+        lambda: {"profit": 0.0, "stake": 0.0, "trade_count": 0}
+    )
 
     trades = load_trades()
     profits = compute_realized_profits(trades)
@@ -138,4 +161,116 @@ def compute_smart_money(
             )
 
     results.sort(key=lambda item: item["roi"], reverse=True)
+    return results
+
+
+def compute_suspicious_wallets(
+    account_age_days: int = 30,
+    large_stake: float = 10000.0,
+    profit_threshold: float = 10000.0,
+    reinvest_min_days: int = 1,
+    reinvest_max_days: int = 30,
+) -> List[Dict[str, Any]]:
+    trades = load_trades()
+    if not trades:
+        return []
+
+    trades_by_user: DefaultDict[str, List[TradeEntry]] = defaultdict(list)
+    first_trade_time: Dict[str, datetime] = {}
+
+    for trade in trades:
+        trades_by_user[trade["user_id"]].append(trade)
+        current_first = first_trade_time.get(trade["user_id"])
+        if current_first is None or trade["timestamp"] < current_first:
+            first_trade_time[trade["user_id"]] = trade["timestamp"]
+
+    for user_trades in trades_by_user.values():
+        user_trades.sort(key=lambda item: item["timestamp"])
+
+    profits = compute_realized_profits(trades)
+    profits_by_user: DefaultDict[str, List[ProfitEntry]] = defaultdict(list)
+    for entry in profits:
+        profits_by_user[entry["user_id"]].append(entry)
+
+    for user_profits in profits_by_user.values():
+        user_profits.sort(key=lambda item: item["timestamp"])
+
+    results: List[Dict[str, Any]] = []
+
+    for user_id, user_trades in trades_by_user.items():
+        first_time = first_trade_time[user_id]
+        early_cutoff = first_time + timedelta(days=account_age_days)
+
+        early_large_trades: List[Dict[str, Any]] = []
+        for trade in user_trades:
+            if trade["timestamp"] > early_cutoff:
+                break
+            stake = abs((trade.get("price") or 0) * (trade.get("size") or 0))
+            if stake >= large_stake:
+                early_large_trades.append({"trade": trade, "stake": stake})
+
+        for entry in early_large_trades:
+            trade = entry["trade"]
+            results.append(
+                {
+                    "user_id": user_id,
+                    "reason": "new_account_large_bet",
+                    "market_id": trade.get("market_id"),
+                    "timestamp": trade["timestamp"].isoformat(),
+                    "stake": round(entry["stake"], 4),
+                    "first_trade_at": first_time.isoformat(),
+                }
+            )
+
+        if not early_large_trades:
+            continue
+
+        profit_entries = [
+            entry
+            for entry in profits_by_user.get(user_id, [])
+            if entry["timestamp"] <= early_cutoff
+        ]
+        if not profit_entries:
+            continue
+
+        cumulative_profit = 0.0
+        profit_hit_time = None
+        for entry in profit_entries:
+            cumulative_profit += entry["profit"]
+            if cumulative_profit >= profit_threshold:
+                profit_hit_time = entry["timestamp"]
+                break
+
+        if profit_hit_time is None:
+            continue
+
+        reinvest_start = profit_hit_time + timedelta(days=reinvest_min_days)
+        reinvest_end = profit_hit_time + timedelta(days=reinvest_max_days)
+
+        reinvest_trade: Optional[ReinvestTrade] = None
+        for trade in user_trades:
+            if trade["timestamp"] < reinvest_start:
+                continue
+            if trade["timestamp"] > reinvest_end:
+                break
+            stake = abs((trade.get("price") or 0) * (trade.get("size") or 0))
+            if stake >= large_stake:
+                reinvest_trade = {"trade": trade, "stake": stake}
+                break
+
+        if reinvest_trade is not None:
+            trade = reinvest_trade["trade"]
+            results.append(
+                {
+                    "user_id": user_id,
+                    "reason": "profitable_early_reinvest",
+                    "market_id": trade.get("market_id"),
+                    "timestamp": trade["timestamp"].isoformat(),
+                    "stake": round(reinvest_trade["stake"], 4),
+                    "first_trade_at": first_time.isoformat(),
+                    "profit_hit_at": profit_hit_time.isoformat(),
+                    "profit_threshold": round(profit_threshold, 4),
+                }
+            )
+
     return results

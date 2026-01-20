@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import './App.css';
 
 interface PanelProps {
-  title: string;
+  title: React.ReactNode;
   loading?: boolean;
   isEmpty?: boolean;
   emptyMessage?: string;
   children: React.ReactNode;
+  controls?: React.ReactNode;
 }
 
 interface SmartMoneyItem {
@@ -33,9 +34,18 @@ interface HotMarketItem {
   volume: number;
 }
 
+interface SuspiciousWalletItem {
+  user_id: string;
+  reason: string;
+  market_id: string;
+  stake: number;
+  first_trade_at?: string;
+  profit_hit_at?: string;
+}
+
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000';
 
-const DashboardPanel = ({ title, loading, isEmpty, emptyMessage, children }: PanelProps) => {
+const DashboardPanel = ({ title, loading, isEmpty, emptyMessage, children, controls }: PanelProps) => {
   return (
     <div className="panel">
       <div className="panel-header">
@@ -43,6 +53,7 @@ const DashboardPanel = ({ title, loading, isEmpty, emptyMessage, children }: Pan
         {loading && <div className="status-dot" style={{ animation: 'pulse 1s infinite' }} />}
       </div>
       <div className="panel-content">
+        {controls && <div style={{ marginBottom: '12px' }}>{controls}</div>}
         {loading ? (
           <div className="loading-state">
             {[...Array(5)].map((_, i) => (
@@ -61,6 +72,29 @@ const DashboardPanel = ({ title, loading, isEmpty, emptyMessage, children }: Pan
     </div>
   );
 };
+
+const FilterInput = ({ label, value, onChange, min, max }: { label: string; value: number; onChange: (val: number) => void; min?: number; max?: number }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '80px' }}>
+    <label style={{ fontSize: '0.75rem', color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>{label}</label>
+    <input
+      type="number"
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      min={min}
+      max={max}
+      style={{
+        background: 'rgba(255, 255, 255, 0.05)',
+        border: '1px solid var(--border-color)',
+        borderRadius: '4px',
+        color: 'inherit',
+        padding: '4px 8px',
+        fontSize: '0.85rem',
+        width: '100%',
+        boxSizing: 'border-box'
+      }}
+    />
+  </div>
+);
 
 const formatPercent = (value: number) => `${(value * 100).toFixed(2)}%`;
 const formatUsd = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -136,6 +170,46 @@ const TopProfitSection = ({ items }: { items: ProfitItem[] }) => (
   </table>
 );
 
+const SuspiciousWalletsSection = ({ items }: { items: SuspiciousWalletItem[] }) => (
+  <table className="data-table">
+    <thead>
+      <tr>
+        <th>钱包</th>
+        <th>原因</th>
+        <th>金额</th>
+        <th>首次交易</th>
+        <th>市场ID</th>
+      </tr>
+    </thead>
+    <tbody>
+      {items.map((item, i) => (
+        <tr key={`${item.user_id}-${i}`}>
+          <td style={{ fontFamily: 'var(--font-mono)' }} title={item.user_id}>
+            {item.user_id.slice(0, 6)}...{item.user_id.slice(-4)}
+          </td>
+          <td>
+            {item.reason === 'new_account_large_bet' ? '新号大额' : item.reason}
+          </td>
+          <td>{formatUsd(item.stake)}</td>
+          <td style={{ fontSize: '0.9em' }}>
+            {item.first_trade_at 
+              ? new Date(item.first_trade_at).toLocaleString('zh-CN', {
+                  month: 'numeric',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })
+              : '-'}
+          </td>
+          <td style={{ fontFamily: 'var(--font-mono)' }} title={item.market_id}>
+            {item.market_id.slice(0, 4)}...
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+);
+
 const HotMarketsSection = ({ items }: { items: HotMarketItem[] }) => (
   <div style={{ display: 'grid', gap: '8px' }}>
     {items.map((item) => (
@@ -173,16 +247,41 @@ function App() {
   const [whales, setWhales] = useState<WhaleItem[]>([]);
   const [topProfit, setTopProfit] = useState<ProfitItem[]>([]);
   const [hotMarkets, setHotMarkets] = useState<HotMarketItem[]>([]);
+  const [suspiciousWallets, setSuspiciousWallets] = useState<SuspiciousWalletItem[]>([]);
+
+  const getParam = (key: string, def: number) => {
+    const val = new URLSearchParams(window.location.search).get(key);
+    return val ? (Number(val) || def) : def;
+  };
+
+  const [minAgeDays, setMinAgeDays] = useState(() => getParam('account_age_days', 30));
+  const [minStake, setMinStake] = useState(() => getParam('large_stake', 10000));
+  const [minProfit, setMinProfit] = useState(() => getParam('profit_threshold', 10000));
+  const [reinvestMin, setReinvestMin] = useState(() => getParam('reinvest_min_days', 1));
+  const [reinvestMax, setReinvestMax] = useState(() => getParam('reinvest_max_days', 30));
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    params.set('account_age_days', minAgeDays.toString());
+    params.set('large_stake', minStake.toString());
+    params.set('profit_threshold', minProfit.toString());
+    params.set('reinvest_min_days', reinvestMin.toString());
+    params.set('reinvest_max_days', reinvestMax.toString());
+    const newUrl = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState(null, '', newUrl);
+  }, [minAgeDays, minStake, minProfit, reinvestMin, reinvestMax]);
 
   const [loadingSmartMoney, setLoadingSmartMoney] = useState(true);
   const [loadingWhales, setLoadingWhales] = useState(true);
   const [loadingTopProfit, setLoadingTopProfit] = useState(true);
   const [loadingHotMarkets, setLoadingHotMarkets] = useState(true);
+  const [loadingSuspiciousWallets, setLoadingSuspiciousWallets] = useState(true);
 
   const [smartMoneyError, setSmartMoneyError] = useState<string | null>(null);
   const [whalesError, setWhalesError] = useState<string | null>(null);
   const [topProfitError, setTopProfitError] = useState<string | null>(null);
   const [hotMarketsError, setHotMarketsError] = useState<string | null>(null);
+  const [suspiciousWalletsError, setSuspiciousWalletsError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -192,17 +291,28 @@ function App() {
       setLoadingWhales(true);
       setLoadingTopProfit(true);
       setLoadingHotMarkets(true);
+      setLoadingSuspiciousWallets(true);
       setSmartMoneyError(null);
       setWhalesError(null);
       setTopProfitError(null);
       setHotMarketsError(null);
+      setSuspiciousWalletsError(null);
 
       try {
-        const [smart, whale, profit, hot] = await Promise.all([
+        const suspiciousParams = new URLSearchParams({
+          account_age_days: minAgeDays.toString(),
+          large_stake: minStake.toString(),
+          profit_threshold: minProfit.toString(),
+          reinvest_min_days: reinvestMin.toString(),
+          reinvest_max_days: reinvestMax.toString(),
+        });
+
+        const [smart, whale, profit, hot, suspicious] = await Promise.all([
           fetchJson<{ data: SmartMoneyItem[] }>('/monitor/smart-money'),
           fetchJson<{ data: WhaleItem[] }>('/monitor/whales'),
           fetchJson<{ data: ProfitItem[] }>('/rankings/top-profit'),
           fetchJson<{ data: HotMarketItem[] }>('/markets/hot'),
+          fetchJson<{ data: SuspiciousWalletItem[] }>(`/monitor/suspicious-wallets?${suspiciousParams}`),
         ]);
         if (!isMounted) {
           return;
@@ -211,6 +321,7 @@ function App() {
         setWhales(whale.data || []);
         setTopProfit(profit.data || []);
         setHotMarkets(hot.data || []);
+        setSuspiciousWallets(suspicious.data || []);
       } catch (error) {
         if (!isMounted) {
           return;
@@ -220,12 +331,14 @@ function App() {
         setWhalesError(message);
         setTopProfitError(message);
         setHotMarketsError(message);
+        setSuspiciousWalletsError(message);
       } finally {
         if (isMounted) {
           setLoadingSmartMoney(false);
           setLoadingWhales(false);
           setLoadingTopProfit(false);
           setLoadingHotMarkets(false);
+          setLoadingSuspiciousWallets(false);
         }
       }
     };
@@ -237,7 +350,7 @@ function App() {
       isMounted = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [minAgeDays, minStake, minProfit, reinvestMin, reinvestMax]);
 
   return (
     <>
@@ -277,6 +390,46 @@ function App() {
           emptyMessage={topProfitError || '暂无收益数据'}
         >
           <TopProfitSection items={topProfit} />
+        </DashboardPanel>
+
+        <DashboardPanel
+          title={
+            <span style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              可疑钱包监控
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', fontWeight: 'normal', fontFamily: 'var(--font-mono)' }}>
+                (Age&gt;{minAgeDays}d Stake&gt;{formatUsd(minStake)} Profit&gt;{formatUsd(minProfit)} Reinv:{reinvestMin}-{reinvestMax}d)
+              </span>
+            </span>
+          }
+          loading={loadingSuspiciousWallets}
+          isEmpty={!loadingSuspiciousWallets && suspiciousWallets.length === 0}
+          emptyMessage={suspiciousWalletsError || '暂无可疑钱包数据'}
+          controls={
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <FilterInput label="账号天数" value={minAgeDays} onChange={setMinAgeDays} min={1} />
+              <FilterInput label="大额阈值($)" value={minStake} onChange={setMinStake} min={0} />
+              <FilterInput label="利润阈值($)" value={minProfit} onChange={setMinProfit} min={0} />
+              <FilterInput 
+                label="复投Min(天)" 
+                value={reinvestMin} 
+                onChange={(v) => {
+                  if (v <= reinvestMax) setReinvestMin(v);
+                }} 
+                min={0} 
+                max={reinvestMax}
+              />
+              <FilterInput 
+                label="复投Max(天)" 
+                value={reinvestMax} 
+                onChange={(v) => {
+                  if (v >= reinvestMin) setReinvestMax(v);
+                }} 
+                min={reinvestMin} 
+              />
+            </div>
+          }
+        >
+          <SuspiciousWalletsSection items={suspiciousWallets} />
         </DashboardPanel>
 
         <DashboardPanel

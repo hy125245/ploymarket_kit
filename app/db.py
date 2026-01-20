@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from typing import Iterator
 
 DB_PATH = os.getenv(
-    "DATABASE_URL", "/home/hy125245/ploymarket/ploymarket_kit/polymarket.db"
+    "DATABASE_URL", "/home/hy125245/workspace/ploymarket_kit/polymarket.db"
 )
 
 
