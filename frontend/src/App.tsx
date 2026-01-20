@@ -52,7 +52,7 @@ const DashboardPanel = ({ title, loading, isEmpty, emptyMessage, children }: Pan
         ) : isEmpty ? (
           <div className="empty-state">
             <div className="empty-icon">∅</div>
-            <div>{emptyMessage || 'No data available'}</div>
+            <div>{emptyMessage || '暂无数据'}</div>
           </div>
         ) : (
           children
@@ -69,11 +69,11 @@ const SmartMoneySection = ({ items }: { items: SmartMoneyItem[] }) => (
   <table className="data-table">
     <thead>
       <tr>
-        <th>Wallet</th>
-        <th>ROI</th>
-        <th>Win Rate</th>
-        <th>Profit</th>
-        <th>Trades</th>
+        <th>钱包</th>
+        <th>投资回报率</th>
+        <th>胜率</th>
+        <th>收益</th>
+        <th>交易次数</th>
       </tr>
     </thead>
     <tbody>
@@ -96,8 +96,8 @@ const WhalesSection = ({ items }: { items: WhaleItem[] }) => (
   <table className="data-table">
     <thead>
       <tr>
-        <th>Wallet</th>
-        <th>Net Invested (24h)</th>
+        <th>钱包</th>
+        <th>净投资额（24小时）</th>
       </tr>
     </thead>
     <tbody>
@@ -115,9 +115,9 @@ const TopProfitSection = ({ items }: { items: ProfitItem[] }) => (
   <table className="data-table">
     <thead>
       <tr>
-        <th>Rank</th>
-        <th>User</th>
-        <th>Total Profit</th>
+        <th>排名</th>
+        <th>用户</th>
+        <th>总收益</th>
       </tr>
     </thead>
     <tbody>
@@ -152,9 +152,9 @@ const HotMarketsSection = ({ items }: { items: HotMarketItem[] }) => (
       >
         <div>
           <div style={{ fontSize: '0.9rem', marginBottom: '4px' }}>{item.question || item.market_id}</div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Vol: {formatUsd(item.volume)}</div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>交易量：{formatUsd(item.volume)}</div>
         </div>
-        <div style={{ color: 'var(--accent-hot)', fontWeight: 'bold' }}>Hot</div>
+        <div style={{ color: 'var(--accent-hot)', fontWeight: 'bold' }}>热门</div>
       </div>
     ))}
   </div>
@@ -215,7 +215,7 @@ function App() {
         if (!isMounted) {
           return;
         }
-        const message = error instanceof Error ? error.message : 'Failed to load data';
+        const message = error instanceof Error ? error.message : '加载数据失败';
         setSmartMoneyError(message);
         setWhalesError(message);
         setTopProfitError(message);
@@ -247,43 +247,43 @@ function App() {
         </div>
         <div className="status-indicator">
           <div className="status-dot"></div>
-          LIVE
+          实时
         </div>
       </header>
 
       <main className="dashboard-grid">
         <DashboardPanel
-          title="Smart Money Flow"
+          title="聪明资金流向"
           loading={loadingSmartMoney}
           isEmpty={!loadingSmartMoney && smartMoney.length === 0}
-          emptyMessage={smartMoneyError || 'No smart money data'}
+          emptyMessage={smartMoneyError || '暂无聪明资金数据'}
         >
           <SmartMoneySection items={smartMoney} />
         </DashboardPanel>
 
         <DashboardPanel
-          title="Whale Watch"
+          title="巨鲸监控"
           loading={loadingWhales}
           isEmpty={!loadingWhales && whales.length === 0}
-          emptyMessage={whalesError || 'No whale data'}
+          emptyMessage={whalesError || '暂无巨鲸数据'}
         >
           <WhalesSection items={whales} />
         </DashboardPanel>
 
         <DashboardPanel
-          title="Top Profit (30d)"
+          title="收益榜（30天）"
           loading={loadingTopProfit}
           isEmpty={!loadingTopProfit && topProfit.length === 0}
-          emptyMessage={topProfitError || 'No profit data'}
+          emptyMessage={topProfitError || '暂无收益数据'}
         >
           <TopProfitSection items={topProfit} />
         </DashboardPanel>
 
         <DashboardPanel
-          title="Hot Markets"
+          title="热门市场"
           loading={loadingHotMarkets}
           isEmpty={!loadingHotMarkets && hotMarkets.length === 0}
-          emptyMessage={hotMarketsError || 'No hot markets data'}
+          emptyMessage={hotMarketsError || '暂无热门市场数据'}
         >
           <HotMarketsSection items={hotMarkets} />
         </DashboardPanel>
